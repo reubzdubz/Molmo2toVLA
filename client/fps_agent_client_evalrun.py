@@ -22,7 +22,7 @@ WSL_SERVER_URL = "http://localhost:8000"
 GAME_DELAY_MS = 3000
 SCREENSHOTS_DIR = Path("vla_evaluation")
 METADATA_FILE = SCREENSHOTS_DIR / "metadata.jsonl"
-target = "Battleship Yamato"
+target = "blue soldier"
 
 SYSTEM_PROMPT = f"Point to the {target} and determine the action to be taken by the camera to align the centre of the image with it."
 
@@ -41,6 +41,20 @@ class GameAgent:
         if not METADATA_FILE.exists():
             with open(METADATA_FILE, 'w') as f:
                 f.write("")  # Empty file, will append JSONL
+    
+
+        numbers = []
+        for fname in os.listdir(SCREENSHOTS_DIR):
+            if fname.endswith(".png"):
+                # split on "_" then take the last part before ".png"
+                num_str = fname.split("_")[-1].split(".")[0]
+                numbers.append(int(num_str))
+
+        # initialize with largest number + 1
+        self.iteration_count = max(numbers) + 1 if numbers else 1
+
+        print("Resuming from latest iteration:", self.iteration_count)
+
     
     async def capture_screenshot(self, prefix: str) -> bytes:
         """Capture Windows screen and return as bytes with naming."""
@@ -292,7 +306,7 @@ async def start_loop(
             
             # Wait for SPACE key before starting iteration
             if wait_for_keypress:
-                logger.info(f"\n🔵 Press SPACE to start iteration {agent.iteration_count + 1} (or 'q' to quit)...")
+                logger.info(f"\n Press SPACE to start iteration {agent.iteration_count + 1} (or 'p' to quit)...")
                 
                 # Async wait for key
                 while True:
@@ -301,7 +315,7 @@ async def start_loop(
                         logger.info("▶️  Starting iteration...")
                         await asyncio.sleep(0.3)  # Debounce
                         break
-                    elif keyboard.is_pressed('q'):
+                    elif keyboard.is_pressed('p'):
                         logger.info("❌ Quit key pressed, stopping loop")
                         raise KeyboardInterrupt
             
@@ -355,5 +369,5 @@ if __name__ == "__main__":
     logger.info(f"Metadata will be saved to: {METADATA_FILE}")
     logger.info("\n🎮 Controls:")
     logger.info("  SPACE - Start next iteration (when wait_for_keypress=True)")
-    logger.info("  Q     - Quit loop")
+    logger.info("  P     - Quit loop")
     uvicorn.run(app, host="0.0.0.0", port=8001)
