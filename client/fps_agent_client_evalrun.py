@@ -22,9 +22,10 @@ WSL_SERVER_URL = "http://localhost:8000"
 GAME_DELAY_MS = 3000
 SCREENSHOTS_DIR = Path("vla_evaluation")
 METADATA_FILE = SCREENSHOTS_DIR / "metadata.jsonl"
-target = "blue soldier"
+target = "red standard bot"
 
-SYSTEM_PROMPT = f"Point to the {target} and determine the action to be taken by the camera to align the centre of the image with it."
+SYSTEM_PROMPT = f"Point to the {target} and determine the action to be taken by the camera to align the centre of the image with it." + ' Output in the following format: <points coords="1 1 x y">item</points><points coords="1 1 500 500">centre of image</points>. ACTION:(dx, dy)'
+        
 
 # Create directories
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
@@ -193,6 +194,48 @@ class GameAgent:
 
         return executed
     
+    async def get_human_correction(self) -> dict:
+        """Wait for human arrow key presses and log durations for verification."""
+        logger.info("🔄 Human verification: Hold arrow keys to correct/verify (ESC to skip).")
+        human_correction = {"up": 0, "down": 0, "left": 0, "right": 0}
+        
+        try:
+            # Poll for key presses (non-blocking, like execute_commands)
+            start_time = asyncio.get_event_loop().time()
+            while True:
+                await asyncio.sleep(0.05)  # Fast poll for responsive input
+                current_time = asyncio.get_event_loop().time()
+                
+                if keyboard.is_pressed('esc'):  # Skip/finish
+                    logger.info("ESC pressed - verification skipped")
+                    break
+                
+                # Check each arrow and accumulate time held
+                if keyboard.is_pressed('up'):
+                    duration = current_time - start_time
+                    human_correction["up"] = max(human_correction["up"], duration)
+                if keyboard.is_pressed('down'):
+                    duration = current_time - start_time
+                    human_correction["down"] = max(human_correction["down"], duration)
+                if keyboard.is_pressed('left'):
+                    duration = current_time - start_time
+                    human_correction["left"] = max(human_correction["left"], duration)
+                if keyboard.is_pressed('right'):
+                    duration = current_time - start_time
+                    human_correction["right"] = max(human_correction["right"], duration)
+                
+                # Timeout after ~10s to avoid infinite wait
+                if current_time - start_time > 10:
+                    logger.info("Verification timeout")
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Human correction error: {e}")
+        
+        logger.info(f"Human correction logged: {human_correction}")
+        return human_correction
+
+    
     def save_metadata(self, metadata: dict):
         """Append metadata entry to JSONL file."""
         with open(METADATA_FILE, 'a') as f:
@@ -229,8 +272,11 @@ async def run_iteration(prompt: str = SYSTEM_PROMPT):
         
         # 5. Capture AFTER screenshot
         after_bytes, after_filename = await agent.capture_screenshot("after")
+
+        # 6. Get human correction/verification (optional, can be used for evaluation)
+        human_correction = await agent.get_human_correction()
         
-        # 6. Save metadata
+        # 7. Save metadata
         metadata = {
             "iteration": iteration_id,
             "timestamp": timestamp,
@@ -245,7 +291,8 @@ async def run_iteration(prompt: str = SYSTEM_PROMPT):
                 "right": commands.get("right", 0),
                 "exit": commands.get("exit", 0)
             },
-            "executed_durations": executed
+            "executed_durations": executed,
+            "human_correction": human_correction,
         }
         agent.save_metadata(metadata)
         
