@@ -41,4 +41,7 @@ uv run python orchestrator.py
 Short demo on current VLA in video game enviroment:
 ![Alt text](assets/vlaoutput.gif)
 
+<<<<<<< HEAD
 Future plans include moving onto Isaac Sim to better simulate robots, still exploring RL techniques.
+=======
+>>>>>>> 4015f42f5116b7b50f2ff543f4f1a2cdbc01b01c
