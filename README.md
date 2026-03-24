@@ -37,3 +37,8 @@ Finally, to run the two services together, in another Powershell Terminal:
 ```
 uv run python orchestrator.py
 ```
+
+Short demo on current VLA in video game enviroment:
+![Alt text](assets/vlaoutput.gif)
+
+Future plans include moving onto Isaac Sim to better simulate robots, still exploring RL techniques.
