@@ -6,10 +6,11 @@ import asyncio
 import pyautogui
 import keyboard
 import json
-from PIL import ImageGrab
+from PIL import ImageGrab, Image
 from pathlib import Path
 import logging
 import os
+import pygetwindow as gw
 import win32gui, win32ui, win32con
 import numpy as np
 
@@ -20,80 +21,61 @@ app = FastAPI()
 
 # Configuration
 WSL_SERVER_URL = "http://localhost:8000"
-GAME_DELAY_MS = 3000
+GAME_DELAY_MS = 10000
 SCREENSHOT_SAVE_PATH = Path("current_frame.png")
 PREVIOUS_SAVE_PATH = Path("previous_frame.png")
-target = "Battleship Yamato"
+target = "soldier"
 
 SYSTEM_PROMPT= f"Point to the {target} and determine the action to be taken by the camera to align the centre of the image with it." + ' Output in the following format: <points coords="1 1 x y">item</points><points coords="1 1 500 500">centre of image</points>. ACTION:(dx, dy)'
 
+WINDOW_TITLE = "RavenfieldSteam"
 
-class WindowCapture:
-    def __init__(self, window_name: str):
-        self.hwnd = win32gui.FindWindow(None, window_name)
-        if not self.hwnd:
-            raise Exception(f"Window not found: {window_name}")
-
-        window_rect = win32gui.GetWindowRect(self.hwnd)
-        w = window_rect[2] - window_rect[0]
-        h = window_rect[3] - window_rect[1]
-
-        border_pixels = 8
-        titlebar_pixels = 30
-
-        self.w = w - (border_pixels * 2)
-        self.h = h - titlebar_pixels - border_pixels
-        self.cropped_x = border_pixels
-        self.cropped_y = titlebar_pixels
-        self.offset_x = window_rect[0] + self.cropped_x
-        self.offset_y = window_rect[1] + self.cropped_y
-
-    def get_pil_image(self) -> Image.Image:
-        wDC = win32gui.GetWindowDC(self.hwnd)
-        dcObj = win32ui.CreateDCFromHandle(wDC)
-        cDC = dcObj.CreateCompatibleDC()
-        dataBitMap = win32ui.CreateBitmap()
-        dataBitMap.CreateCompatibleBitmap(dcObj, self.w, self.h)
-        cDC.SelectObject(dataBitMap)
-        cDC.BitBlt((0, 0), (self.w, self.h), dcObj,
-                   (self.cropped_x, self.cropped_y), win32con.SRCCOPY)
-
-        signedIntsArray = dataBitMap.GetBitmapBits(True)
-        img = np.frombuffer(signedIntsArray, dtype='uint8')
-        img.shape = (self.h, self.w, 4)
-
-        dcObj.DeleteDC()
-        cDC.DeleteDC()
-        win32gui.ReleaseDC(self.hwnd, wDC)
-        win32gui.DeleteObject(dataBitMap.GetHandle())
-
-        img = img[..., :3]  # drop alpha
-        return Image.fromarray(img)
-
-
-WINDOW_TITLE = "Your Game Window Title"
 
 class GameAgent:
     def __init__(self):
         self.previous_screenshot = None
         self.last_screenshot = None
         self.last_commands = None
-        self.window_capture = WindowCapture(WINDOW_TITLE)
+        self.window = None   # pygetwindow Window object
+
+    def _ensure_window(self):
+        if self.window is None:
+            windows = gw.getWindowsWithTitle(WINDOW_TITLE)
+            if not windows:
+                raise RuntimeError(f"Window with title '{WINDOW_TITLE}' not found")
+            self.window = windows[0]
 
     async def capture_screenshot(self) -> tuple[bytes | None, bytes]:
+        """Capture only the specified window and return as bytes."""
         import io
 
-        logger.info("Capturing window screenshot via Win32...")
-        screenshot = self.window_capture.get_pil_image()
+        logger.info("Capturing window screenshot...")
+        self._ensure_window()
 
-        if os.path.exists(SCREENSHOT_SAVE_PATH):
-            if os.path.exists(PREVIOUS_SAVE_PATH):
-                os.remove(PREVIOUS_SAVE_PATH)
-            os.rename(SCREENSHOT_SAVE_PATH, PREVIOUS_SAVE_PATH)
-            os.remove(SCREENSHOT_SAVE_PATH)
+        # Make sure the window is not minimized and is on top (optional but often useful)
+        hwnd = self.window._hWnd
+        win32gui.ShowWindow(hwnd, 5)  # SW_SHOW
+        win32gui.SetForegroundWindow(hwnd)
 
+        # Get window corners
+        left, top = self.window.topleft
+        right, bottom = self.window.bottomright
+
+        # Grab only that region
+        screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
+
+        # File housekeeping
+        try:
+            if PREVIOUS_SAVE_PATH.exists():
+                PREVIOUS_SAVE_PATH.unlink()
+            if SCREENSHOT_SAVE_PATH.exists():
+                SCREENSHOT_SAVE_PATH.rename(PREVIOUS_SAVE_PATH)
+        except Exception as e:
+            logger.error(f"Error rotating screenshot files: {e}")
+
+        # Save new current screenshot
         screenshot.save(SCREENSHOT_SAVE_PATH)
-        logger.info(f"Screenshot saved to {SCREENSHOT_SAVE_PATH}")
+        logger.info(f"Screenshot saved to {SCREENSHOT_SAVE_PATH.resolve()}")
 
         img_bytes = io.BytesIO()
         screenshot.save(img_bytes, format='PNG')
@@ -101,11 +83,12 @@ class GameAgent:
         self.last_screenshot = img_bytes.getvalue()
 
         self.previous_screenshot = None
-        if os.path.exists(PREVIOUS_SAVE_PATH):
-            with open(PREVIOUS_SAVE_PATH, "rb") as f:
+        if PREVIOUS_SAVE_PATH.exists():
+            with PREVIOUS_SAVE_PATH.open("rb") as f:
                 self.previous_screenshot = f.read()
 
         return self.previous_screenshot, self.last_screenshot
+
 
     
     async def send_to_molmo(self, image_bytes: bytes, prompt: str) -> dict:
@@ -304,7 +287,7 @@ async def start_loop(
             # Delay before next iteration
             if iterations == 0 or iteration < iterations:
                 logger.info(f"Waiting {delay_ms}ms before next iteration...")
-                await asyncio.sleep(delay_ms / 3000.0)
+                await asyncio.sleep(delay_ms / 1000.0)
         
         logger.info(f"Loop completed after {iteration} iterations")
         return JSONResponse({
