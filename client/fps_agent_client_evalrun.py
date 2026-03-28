@@ -6,6 +6,8 @@ import asyncio
 import pyautogui
 import keyboard
 import json
+import math
+import winsound
 from PIL import ImageGrab
 from pathlib import Path
 import logging
@@ -22,7 +24,7 @@ WSL_SERVER_URL = "http://localhost:8000"
 GAME_DELAY_MS = 3000
 SCREENSHOTS_DIR = Path("vla_evaluation")
 METADATA_FILE = SCREENSHOTS_DIR / "metadata.jsonl"
-target = "red standard bot"
+target = "soldier"
 
 SYSTEM_PROMPT = f"Point to the {target} and determine the action to be taken by the camera to align the centre of the image with it." + ' Output in the following format: <points coords="1 1 x y">item</points><points coords="1 1 500 500">centre of image</points>. ACTION:(dx, dy)'
         
@@ -196,6 +198,7 @@ class GameAgent:
     
     async def get_human_correction(self) -> dict:
         """Wait for human arrow key presses and log durations for verification."""
+        winsound.Beep(1000, 300)  # 1000 Hz beep for 300ms as audio cue
         logger.info("🔄 Human verification: Hold arrow keys to correct/verify (ESC to skip).")
         human_correction = {"up": 0, "down": 0, "left": 0, "right": 0}
         
@@ -232,6 +235,12 @@ class GameAgent:
         except Exception as e:
             logger.error(f"Human correction error: {e}")
         
+        def _round_sig(x, sig=3):
+            if x == 0:
+                return 0
+            return round(x, sig - int(math.floor(math.log10(abs(x)))) - 1)
+
+        human_correction = {k: _round_sig(v) for k, v in human_correction.items()}
         logger.info(f"Human correction logged: {human_correction}")
         return human_correction
 
